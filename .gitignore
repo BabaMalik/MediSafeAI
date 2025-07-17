@@ -1,0 +1,27 @@
+# Ignore Python cache and logs
+__pycache__/
+*.py[cod]
+*.log
+
+# Ignore virtual environments
+venv/
+.env/
+*.env
+
+# Ignore system files
+.DS_Store
+
+# Ignore notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore build artifacts
+build/
+dist/
+*.egg-info/
+
+# Ignore Spark temporary files
+.metastore_db/
+spark-warehouse/
+
+# BUT allow raw data in this branch
+!data/raw/
