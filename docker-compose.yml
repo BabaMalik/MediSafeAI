@@ -1,0 +1,280 @@
+version: '3.8'
+
+x-airflow-common:
+  &airflow-common
+  image: apache/airflow:2.8.1-python3.10
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
+    _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
+  volumes:
+    - ${AIRFLOW_PROJ_DIR:-.}/src/airflow/dags:/opt/airflow/dags
+    - ${AIRFLOW_PROJ_DIR:-.}/src/airflow/logs:/opt/airflow/logs
+    - ${AIRFLOW_PROJ_DIR:-.}/src/airflow/plugins:/opt/airflow/plugins
+    - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
+    - ${AIRFLOW_PROJ_DIR:-.}/src:/opt/airflow/src
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    &airflow-common-depends-on
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  # =============================================================================
+  # PostgreSQL Database
+  # =============================================================================
+  postgres:
+    image: postgres:14
+    container_name: medisafe-postgres
+    environment:
+      POSTGRES_USER: medisafe_user
+      POSTGRES_PASSWORD: medisafe_password
+      POSTGRES_DB: medisafe_db
+      POSTGRES_MULTIPLE_DATABASES: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+      - ./docker/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "medisafe_user"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+    networks:
+      - medisafe-network
+
+  # =============================================================================
+  # Redis (for caching and Celery)
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: medisafe-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 30s
+      retries: 50
+      start_period: 30s
+    restart: always
+    networks:
+      - medisafe-network
+
+  # =============================================================================
+  # Airflow Webserver
+  # =============================================================================
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: medisafe-airflow-webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+    networks:
+      - medisafe-network
+
+  # =============================================================================
+  # Airflow Scheduler
+  # =============================================================================
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: medisafe-airflow-scheduler
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+    networks:
+      - medisafe-network
+
+  # =============================================================================
+  # Airflow Initialization
+  # =============================================================================
+  airflow-init:
+    <<: *airflow-common
+    container_name: medisafe-airflow-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        mkdir -p /sources/logs /sources/dags /sources/plugins
+        chown -R "${AIRFLOW_UID}:0" /sources/{logs,dags,plugins}
+        exec /entrypoint airflow version
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_UPGRADE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-admin}
+    user: "0:0"
+    volumes:
+      - ${AIRFLOW_PROJ_DIR:-.}/src/airflow:/sources
+    networks:
+      - medisafe-network
+
+  # =============================================================================
+  # MediSafeAI API Service
+  # =============================================================================
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    container_name: medisafe-api
+    environment:
+      - APP_ENV=${APP_ENV:-development}
+      - DATABASE_URL=postgresql://medisafe_user:medisafe_password@postgres:5432/medisafe_db
+      - REDIS_URL=redis://redis:6379/0
+      - DEFAULT_EPSILON=${DEFAULT_EPSILON:-1.0}
+      - DEFAULT_DELTA=${DEFAULT_DELTA:-1e-5}
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      - postgres
+      - redis
+    restart: always
+    command: gunicorn --bind 0.0.0.0:5000 --workers 4 --timeout 300 src.api.app:app
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - medisafe-network
+
+  # =============================================================================
+  # Celery Worker (for async tasks)
+  # =============================================================================
+  celery-worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    container_name: medisafe-celery-worker
+    command: celery -A src.api.celery_app worker --loglevel=info
+    environment:
+      - APP_ENV=${APP_ENV:-development}
+      - DATABASE_URL=postgresql://medisafe_user:medisafe_password@postgres:5432/medisafe_db
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      - postgres
+      - redis
+    restart: always
+    networks:
+      - medisafe-network
+
+  # =============================================================================
+  # Jupyter Notebook (for development and analysis)
+  # =============================================================================
+  jupyter:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.jupyter
+    container_name: medisafe-jupyter
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+      - JUPYTER_TOKEN=${JUPYTER_TOKEN:-medisafe-dev-token}
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./notebooks:/home/jovyan/work
+      - ./src:/home/jovyan/src
+      - ./data:/home/jovyan/data
+    restart: always
+    networks:
+      - medisafe-network
+
+  # =============================================================================
+  # Prometheus (monitoring)
+  # =============================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: medisafe-prometheus
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - "9090:9090"
+    restart: always
+    networks:
+      - medisafe-network
+
+  # =============================================================================
+  # Grafana (visualization)
+  # =============================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: medisafe-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-clock-panel
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./docker/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./docker/grafana/datasources:/etc/grafana/provisioning/datasources
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    restart: always
+    networks:
+      - medisafe-network
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres-db-volume:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  medisafe-network:
+    driver: bridge
