@@ -13,8 +13,34 @@ class DiseaseProgressionModel:
         self.base_deterioration_rate = base_deterioration_rate
         self.intervention_effectiveness = intervention_effectiveness
 
-    def simulate_progression(self, patient_data, start_date, end_date, visit_interval_days=30):
-        """Simulate disease progression with vitals and lab measurements over time"""
+    def simulate_progression(self, patient_data, start_date=None, end_date=None, visit_interval_days=30, num_visits=None, time_interval_days=None):
+        """
+        Simulate disease progression with vitals and lab measurements over time
+
+        Args:
+            patient_data: Patient information dictionary
+            start_date: Start date for simulation (optional if num_visits provided)
+            end_date: End date for simulation (optional if num_visits provided)
+            visit_interval_days: Days between visits (default 30)
+            num_visits: Number of visits to simulate (alternative to start/end dates)
+            time_interval_days: Alias for visit_interval_days
+        """
+        # Handle alternative parameter names
+        if time_interval_days is not None:
+            visit_interval_days = time_interval_days
+
+        # If num_visits provided, calculate dates
+        if num_visits is not None:
+            from datetime import datetime
+            start_date = datetime.now().date() if start_date is None else start_date
+            from datetime import timedelta
+            end_date = start_date + timedelta(days=visit_interval_days * (num_visits - 1))
+
+        # Ensure we have dates
+        if start_date is None or end_date is None:
+            from datetime import datetime, timedelta
+            start_date = datetime.now().date()
+            end_date = start_date + timedelta(days=365)  # Default to 1 year
         patient_id = patient_data['patient_id']
 
         # Initialize with baseline health metrics based on patient condition
@@ -107,5 +133,38 @@ class DiseaseProgressionModel:
             # Move to next visit
             current_date += timedelta(days=visit_interval_days)
 
-        return pd.DataFrame(visits)
+        df = pd.DataFrame(visits)
+        # Add visit numbers
+        df.insert(0, 'visit_number', range(1, len(df) + 1))
+        return df
+
+    def simulate_progression_by_visits(self, patient_data, num_visits=12, time_interval_days=30):
+        """
+        Convenient wrapper to simulate progression by number of visits instead of dates
+
+        Args:
+            patient_data: Patient information dictionary
+            num_visits: Number of visits to simulate
+            time_interval_days: Days between visits
+
+        Returns:
+            DataFrame with progression data
+        """
+        from datetime import datetime, timedelta
+
+        start_date = datetime.now().date()
+        # Calculate end date based on number of visits
+        end_date = start_date + timedelta(days=time_interval_days * (num_visits - 1))
+
+        df = self.simulate_progression(
+            patient_data,
+            start_date,
+            end_date,
+            visit_interval_days=time_interval_days
+        )
+
+        # Add visit numbers
+        df.insert(0, 'visit_number', range(1, len(df) + 1))
+
+        return df
 
