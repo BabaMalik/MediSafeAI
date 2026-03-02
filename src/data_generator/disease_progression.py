@@ -31,14 +31,11 @@ class DiseaseProgressionModel:
 
         # If num_visits provided, calculate dates
         if num_visits is not None:
-            from datetime import datetime
             start_date = datetime.now().date() if start_date is None else start_date
-            from datetime import timedelta
             end_date = start_date + timedelta(days=visit_interval_days * (num_visits - 1))
 
         # Ensure we have dates
         if start_date is None or end_date is None:
-            from datetime import datetime, timedelta
             start_date = datetime.now().date()
             end_date = start_date + timedelta(days=365)  # Default to 1 year
         patient_id = patient_data['patient_id']
@@ -150,21 +147,9 @@ class DiseaseProgressionModel:
         Returns:
             DataFrame with progression data
         """
-        from datetime import datetime, timedelta
-
-        start_date = datetime.now().date()
-        # Calculate end date based on number of visits
-        end_date = start_date + timedelta(days=time_interval_days * (num_visits - 1))
-
-        df = self.simulate_progression(
+        return self.simulate_progression(
             patient_data,
-            start_date,
-            end_date,
-            visit_interval_days=time_interval_days
+            num_visits=num_visits,
+            time_interval_days=time_interval_days
         )
-
-        # Add visit numbers
-        df.insert(0, 'visit_number', range(1, len(df) + 1))
-
-        return df
 
