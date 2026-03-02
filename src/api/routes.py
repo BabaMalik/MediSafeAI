@@ -328,26 +328,49 @@ def simulate_progression():
         data = request.get_json()
         validated = DiseaseProgressionRequest(**data)
 
-        # Load patient data
-        # For API, we'd typically load from database
-        # For now, assume patient data is provided or in a file
-
         logger.info(f"Simulating progression for patient {validated.patient_id}")
 
-        # This is a simplified version - you'd load actual patient data
-        model = DiseaseProgressionModel()
+        # Try to load patient from provided data, file, or generate a sample
+        patient_data = data.get('patient_data')
+        patient = None
 
-        # Generate progression
-        # In real implementation, load patient from DB
-        # For now, return a placeholder response
+        if patient_data:
+            # Patient data provided directly in request
+            patient = patient_data
+        else:
+            # Try to load from default patients file
+            default_file = settings.DATA_OUTPUT_DIR / 'patients.csv'
+            if default_file.exists():
+                patients_df = pd.read_csv(default_file)
+                matched = patients_df[patients_df['patient_id'] == validated.patient_id]
+                if not matched.empty:
+                    patient = matched.iloc[0].to_dict()
+
+        if patient is None:
+            # Generate a sample patient with the given ID
+            generator = PatientGenerator(num_patients=1, seed=hash(validated.patient_id) % 2**31)
+            sample_df = generator.generate_patients()
+            patient = sample_df.iloc[0].to_dict()
+            patient['patient_id'] = validated.patient_id
+
+        model = DiseaseProgressionModel()
+        progression_df = model.simulate_progression(
+            patient,
+            num_visits=validated.num_visits,
+            time_interval_days=validated.time_interval_days
+        )
+
+        # Convert dates to strings for JSON serialization
+        progression_df['visit_date'] = progression_df['visit_date'].astype(str)
 
         return jsonify({
             'status': 'success',
-            'message': 'Disease progression simulated',
+            'message': f'Simulated {len(progression_df)} visits for patient {validated.patient_id}',
             'data': {
                 'patient_id': validated.patient_id,
-                'num_visits': validated.num_visits,
-                'time_interval_days': validated.time_interval_days
+                'num_visits': len(progression_df),
+                'time_interval_days': validated.time_interval_days,
+                'progression': progression_df.to_dict(orient='records')
             },
             'timestamp': datetime.utcnow().isoformat()
         }), 200

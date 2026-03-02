@@ -174,6 +174,24 @@ class DifferentialPrivacy:
 
         return results
 
+    def private_mean(self, data, sensitivity: float = None) -> float:
+        """Compute differentially private mean"""
+        series = pd.Series(data) if not isinstance(data, pd.Series) else data
+        result = self.compute_private_statistics(series, stats=['mean'], sensitivity=sensitivity)
+        return result['mean']
+
+    def private_variance(self, data, sensitivity: float = None) -> float:
+        """Compute differentially private variance"""
+        series = pd.Series(data) if not isinstance(data, pd.Series) else data
+        result = self.compute_private_statistics(series, stats=['variance'], sensitivity=sensitivity)
+        return result['variance']
+
+    def private_count(self, data, sensitivity: float = None) -> float:
+        """Compute differentially private count"""
+        series = pd.Series(data) if not isinstance(data, pd.Series) else data
+        result = self.compute_private_statistics(series, stats=['count'], sensitivity=sensitivity)
+        return result['count']
+
     def _private_median(self, data: pd.Series, sensitivity: float) -> float:
         """
         Compute differentially private median using the exponential mechanism

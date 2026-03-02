@@ -6,10 +6,15 @@ from datetime import datetime, timedelta
 
 
 class PatientGenerator:
-    def __init__(self, seed=42):
+    def __init__(self, num_patients=10000, seed=42):
+        self.num_patients = num_patients
         self.faker = Faker()
         self.faker.seed_instance(seed)
         np.random.seed(seed)
+
+    def generate_patients(self, n_patients=None):
+        """Generate patient data. Delegates to generate_demographics."""
+        return self.generate_demographics(n_patients=n_patients or self.num_patients)
 
     def generate_demographics(self, n_patients=10000):
         """Generate patient demographic data"""
@@ -81,12 +86,13 @@ class PatientGenerator:
 
 
 if __name__ == "__main__":
-    generator = PatientGenerator()
-    df = generator.generate_demographics(n_patients=10000)
-
-    # Make sure the folder exists before saving
     import os
-    os.makedirs("/Users/babamalik/PycharmProjects/MediSafeAI/data/raw", exist_ok=True)
+    generator = PatientGenerator(num_patients=10000)
+    df = generator.generate_patients()
 
-    df.to_csv("/Users/babamalik/PycharmProjects/MediSafeAI/data/raw/patients.csv", index=False)
-    print("✅ 1000 patient records generated and saved to data/raw/patients.csv")
+    output_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'raw')
+    os.makedirs(output_dir, exist_ok=True)
+
+    output_path = os.path.join(output_dir, 'patients.csv')
+    df.to_csv(output_path, index=False)
+    print(f"Generated {len(df)} patient records and saved to {output_path}")
