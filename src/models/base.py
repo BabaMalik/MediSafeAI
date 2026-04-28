@@ -1,7 +1,7 @@
 """
 Base Database Configuration
 SQLAlchemy base class and database session management
-
+"""
 
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
