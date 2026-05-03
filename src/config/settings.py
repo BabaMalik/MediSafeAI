@@ -103,6 +103,12 @@ class Settings:
     API_KEY_ENABLED: bool = os.getenv("API_KEY_ENABLED", "False").lower() == "true"
     API_KEY: Optional[str] = os.getenv("API_KEY")
 
+    # JWT Authentication
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", SECRET_KEY)
+    JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
+    JWT_ACCESS_TOKEN_EXPIRES: int = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRES", "3600"))  # 1 hour
+    JWT_REFRESH_TOKEN_EXPIRES: int = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRES", "2592000"))  # 30 days
+
     # ==========================================================================
     # AIRFLOW CONFIGURATION
     # ==========================================================================

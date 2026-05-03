@@ -155,6 +155,19 @@ class AuditLogger:
             }
         )
 
+    def log_user_action(self, user_id: str, action: str, details: Dict[str, Any] = None, **kwargs):
+        """Log user authentication and authorization events"""
+        self.logger.info(
+            f"User action: {action}",
+            extra={
+                'event_type': 'user_action',
+                'user_id': user_id,
+                'action': action,
+                'details': details or {},
+                **kwargs
+            }
+        )
+
 
 def setup_logging(
     log_level: Optional[str] = None,
@@ -245,6 +258,7 @@ def get_audit_logger() -> AuditLogger:
             def log_privacy_operation(self, *args, **kwargs): pass
             def log_data_generation(self, *args, **kwargs): pass
             def log_export(self, *args, **kwargs): pass
+            def log_user_action(self, *args, **kwargs): pass
 
         return NoOpAuditLogger()
 

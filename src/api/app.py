@@ -6,12 +6,14 @@ REST API for MediSafeAI data generation and privacy operations
 import time
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from datetime import datetime
+from flask_jwt_extended import JWTManager
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from src.config.settings import settings
 from src.utils.logger import setup_logging, get_logger, get_audit_logger
 from src.api.routes import register_routes
+from src.api.auth_routes import register_auth_routes
 
 # Initialize logger
 setup_logging()
@@ -22,6 +24,13 @@ audit_logger = get_audit_logger()
 app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max request size
+
+# JWT Configuration
+app.config['JWT_SECRET_KEY'] = settings.JWT_SECRET_KEY
+app.config['JWT_ALGORITHM'] = settings.JWT_ALGORITHM
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(seconds=settings.JWT_ACCESS_TOKEN_EXPIRES)
+app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(seconds=settings.JWT_REFRESH_TOKEN_EXPIRES)
+jwt = JWTManager(app)
 
 # Enable CORS if configured
 if settings.CORS_ENABLED:
@@ -90,6 +99,51 @@ def handle_exception(error):
         'error_message': str(error),
         'timestamp': datetime.utcnow().isoformat()
     }), 500
+
+
+# JWT error handlers
+@jwt.expired_token_loader
+def expired_token_callback(jwt_header, jwt_payload):
+    """Handle expired JWT tokens"""
+    return jsonify({
+        'status': 'error',
+        'error_code': 'TOKEN_EXPIRED',
+        'error_message': 'Token has expired',
+        'timestamp': datetime.utcnow().isoformat()
+    }), 401
+
+
+@jwt.invalid_token_loader
+def invalid_token_callback(error):
+    """Handle invalid JWT tokens"""
+    return jsonify({
+        'status': 'error',
+        'error_code': 'INVALID_TOKEN',
+        'error_message': 'Invalid token',
+        'timestamp': datetime.utcnow().isoformat()
+    }), 401
+
+
+@jwt.unauthorized_loader
+def unauthorized_callback(error):
+    """Handle missing JWT tokens"""
+    return jsonify({
+        'status': 'error',
+        'error_code': 'UNAUTHORIZED',
+        'error_message': 'Missing authorization token',
+        'timestamp': datetime.utcnow().isoformat()
+    }), 401
+
+
+@jwt.revoked_token_loader
+def revoked_token_callback(jwt_header, jwt_payload):
+    """Handle revoked JWT tokens"""
+    return jsonify({
+        'status': 'error',
+        'error_code': 'TOKEN_REVOKED',
+        'error_message': 'Token has been revoked',
+        'timestamp': datetime.utcnow().isoformat()
+    }), 401
 
 
 # =============================================================================
@@ -162,6 +216,7 @@ def metrics():
 # =============================================================================
 
 register_routes(app)
+register_auth_routes(app)
 
 
 # =============================================================================

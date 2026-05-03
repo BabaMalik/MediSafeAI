@@ -6,6 +6,7 @@ SQLAlchemy ORM models for persistent storage
 from src.models.base import Base, get_db_session, init_db
 from src.models.patient import Patient, PatientVitals, PatientProgression
 from src.models.audit import AuditLog, PrivacyOperation
+from src.models.user import User, UserRole
 
 __all__ = [
     'Base',
@@ -16,4 +17,6 @@ __all__ = [
     'PatientProgression',
     'AuditLog',
     'PrivacyOperation',
+    'User',
+    'UserRole',
 ]
