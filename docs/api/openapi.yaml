@@ -1,0 +1,392 @@
+openapi: 3.0.3
+info:
+  title: MediSafeAI API
+  description: |
+    HIPAA-Compliant Synthetic Healthcare Data Generation API with Differential Privacy
+
+    ## Features
+    - Generate synthetic patient, vitals, and treatment data
+    - Apply differential privacy for enhanced protection
+    - Track privacy budget usage with comprehensive audit logging
+    - JWT-based authentication with role-based access control
+
+    ## Authentication
+    All API endpoints (except `/health`, `/`, and auth endpoints) require JWT authentication.
+    Include the token in the Authorization header: `Authorization: Bearer <token>`
+
+  version: 1.0.0
+  contact:
+    name: MediSafeAI Team
+    email: support@medisafe.ai
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:5000
+    description: Development server
+  - url: https://api.medisafe.ai
+    description: Production server
+
+tags:
+  - name: Authentication
+    description: User authentication and authorization
+  - name: Data Generation
+    description: Synthetic data generation endpoints
+  - name: Privacy
+    description: Differential privacy operations
+  - name: Simulation
+    description: Disease progression simulation
+  - name: Utilities
+    description: System utilities and health checks
+
+paths:
+  /health:
+    get:
+      tags:
+        - Utilities
+      summary: Health check
+      description: Returns system health status and connectivity
+      responses:
+        '200':
+          description: System health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [healthy, degraded]
+                  version:
+                    type: string
+                  uptime_seconds:
+                    type: number
+                  database_connected:
+                    type: boolean
+                  redis_connected:
+                    type: boolean
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /api/v1/auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - email
+                - password
+              properties:
+                username:
+                  type: string
+                  minLength: 3
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+                  description: Must contain uppercase, lowercase, and number
+                role:
+                  type: string
+                  enum: [viewer, researcher, data_scientist, admin]
+                  default: viewer
+      responses:
+        '201':
+          description: User registered successfully
+        '409':
+          description: Username or email already exists
+        '400':
+          description: Validation error
+
+  /api/v1/auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/User'
+                      tokens:
+                        $ref: '#/components/schemas/Tokens'
+        '401':
+          description: Invalid credentials
+
+  /api/v1/generate/patients:
+    post:
+      tags:
+        - Data Generation
+      summary: Generate synthetic patient data
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - num_patients
+              properties:
+                num_patients:
+                  type: integer
+                  minimum: 1
+                  maximum: 100000
+                  default: 1000
+                seed:
+                  type: integer
+                  description: Random seed for reproducibility
+      responses:
+        '200':
+          description: Patients generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerationResponse'
+
+  /api/v1/generate/batch:
+    post:
+      tags:
+        - Data Generation
+      summary: Generate complete dataset with all components
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - num_patients
+                - output_directory
+              properties:
+                num_patients:
+                  type: integer
+                  minimum: 1
+                seed:
+                  type: integer
+                output_directory:
+                  type: string
+                include_vitals:
+                  type: boolean
+                  default: true
+                include_treatments:
+                  type: boolean
+                  default: true
+                apply_privacy:
+                  type: boolean
+                  default: false
+                privacy_config:
+                  $ref: '#/components/schemas/PrivacyConfig'
+      responses:
+        '200':
+          description: Batch generation successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      records_generated:
+                        type: integer
+                      files:
+                        type: object
+                        additionalProperties:
+                          type: string
+
+  /api/v1/privacy/apply:
+    post:
+      tags:
+        - Privacy
+      summary: Apply differential privacy to dataset
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - input_file
+                - privacy_config
+              properties:
+                input_file:
+                  type: string
+                output_file:
+                  type: string
+                privacy_config:
+                  $ref: '#/components/schemas/PrivacyConfig'
+                numeric_columns:
+                  type: array
+                  items:
+                    type: string
+                categorical_columns:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Privacy applied successfully
+
+  /api/v1/simulate/progression:
+    post:
+      tags:
+        - Simulation
+      summary: Simulate disease progression
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - patient_id
+              properties:
+                patient_id:
+                  type: string
+                num_visits:
+                  type: integer
+                  default: 5
+                time_interval_days:
+                  type: integer
+                  default: 30
+      responses:
+        '200':
+          description: Progression simulated successfully
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    Tokens:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          default: Bearer
+        expires_in:
+          type: integer
+
+    PrivacyConfig:
+      type: object
+      required:
+        - epsilon
+        - delta
+      properties:
+        epsilon:
+          type: number
+          format: float
+          minimum: 0.1
+          maximum: 10.0
+          description: Privacy budget (lower = more private)
+        delta:
+          type: number
+          format: float
+          minimum: 0.00001
+          maximum: 0.01
+          description: Privacy parameter (typically 1e-5)
+
+    GenerationResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success, error]
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            records_generated:
+              type: integer
+            file_path:
+              type: string
+            columns:
+              type: array
+              items:
+                type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [error]
+        error_code:
+          type: string
+        error_message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
