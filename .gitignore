@@ -19,6 +19,12 @@ build/
 dist/
 *.egg-info/
 
+# Ignore test coverage files
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
 # Ignore Spark temporary files
 .metastore_db/
 spark-warehouse/
