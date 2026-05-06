@@ -6,7 +6,7 @@ Provides validation for API requests, data generation, and privacy operations
 from typing import Optional, List, Dict, Any
 from datetime import datetime, date
 from enum import Enum
-from pydantic import BaseModel, Field, validator, root_validator
+from pydantic import BaseModel, Field, validator, field_validator, model_validator
 
 
 # =============================================================================
@@ -54,7 +54,7 @@ class PatientBase(BaseModel):
     gender: GenderEnum
     dob: date = Field(..., description="Date of birth")
     age: int = Field(..., ge=0, le=120, description="Patient age in years")
-    zip_code: str = Field(..., regex=r'^\d{5}$', description="5-digit zip code")
+    zip_code: str = Field(..., pattern=r'^\d{5}$', description="5-digit zip code")
     income: float = Field(..., ge=0, description="Annual income in USD")
     insurance: InsuranceTypeEnum
     diabetes: bool = Field(default=False)
@@ -275,12 +275,12 @@ class ExportRequest(BaseModel):
     apply_privacy: bool = Field(default=False, description="Apply differential privacy before export")
     privacy_config: Optional[PrivacyConfig] = Field(default=None, description="Privacy configuration if apply_privacy=True")
 
-    @root_validator
-    def validate_privacy_config(cls, values):
+    @model_validator(mode='after')
+    def validate_privacy_config(self):
         """Ensure privacy_config is provided when apply_privacy=True"""
-        if values.get('apply_privacy') and not values.get('privacy_config'):
-            values['privacy_config'] = PrivacyConfig()
-        return values
+        if self.apply_privacy and not self.privacy_config:
+            self.privacy_config = PrivacyConfig()
+        return self
 
 
 # =============================================================================
