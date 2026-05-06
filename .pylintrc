@@ -1,0 +1,55 @@
+[MASTER]
+# Use multiple processes for faster checking
+jobs=1
+
+# Pickle collected data for later comparisons
+persistent=yes
+
+# When enabled, pylint would attempt to guess common misconfiguration
+suggestion-mode=yes
+
+[MESSAGES CONTROL]
+# Disable specific warnings that are too strict for this project
+disable=
+    C0114,  # missing-module-docstring
+    C0115,  # missing-class-docstring
+    C0116,  # missing-function-docstring
+    R0913,  # too-many-arguments
+    R0914,  # too-many-locals
+    R0903,  # too-few-public-methods
+    W0621,  # redefined-outer-name
+    W0613,  # unused-argument
+    W1203,  # logging-fstring-interpolation
+    W0718,  # broad-exception-caught
+    C0415,  # import-outside-toplevel
+    E0401,  # import-error (for optional dependencies like airflow)
+    R1705,  # no-else-return
+    R0801,  # duplicate-code
+    W0104,  # pointless-statement
+
+[FORMAT]
+# Maximum number of characters on a single line
+max-line-length=120
+
+# Maximum number of lines in a module
+max-module-lines=1000
+
+[DESIGN]
+# Maximum number of arguments for function / method
+max-args=10
+
+# Maximum number of attributes for a class
+max-attributes=15
+
+# Maximum number of boolean expressions in an if statement
+max-bool-expr=5
+
+# Maximum number of branch for function / method body
+max-branches=15
+
+[SIMILARITIES]
+# Minimum lines number of a similarity
+min-similarity-lines=10
+
+# Ignore imports when computing similarities
+ignore-imports=yes

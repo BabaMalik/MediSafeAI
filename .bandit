@@ -1,0 +1,11 @@
+[bandit]
+exclude_dirs = ['/tests', '/venv', '/.venv', '/build', '/dist']
+skips = ['B101', 'B601']
+
+# B101: assert_used - we use asserts in tests
+# B601: paramiko_calls - not applicable
+
+# Only report medium and high severity issues
+tests = []
+severity = ['MEDIUM', 'HIGH']
+confidence = ['MEDIUM', 'HIGH']
