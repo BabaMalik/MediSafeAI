@@ -33,7 +33,7 @@ class AuditLog(Base):
     resource_id = Column(String(100), nullable=True, index=True)
 
     # Additional context
-    metadata = Column(JSON, nullable=True)
+    event_context = Column(JSON, nullable=True)
 
     # Status
     status = Column(String(20), nullable=False, default='success')
@@ -57,7 +57,7 @@ class AuditLog(Base):
             'ip_address': self.ip_address,
             'resource_type': self.resource_type,
             'resource_id': self.resource_id,
-            'metadata': self.metadata,
+            'event_context': self.event_context,
             'status': self.status,
             'error_message': self.error_message,
             'timestamp': self.timestamp.isoformat() if self.timestamp else None,

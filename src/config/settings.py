@@ -80,6 +80,7 @@ class Settings:
     DATA_OUTPUT_DIR: Path = Path(os.getenv("DATA_OUTPUT_DIR", str(DATA_DIR / "raw")))
     DATA_PROCESSED_DIR: Path = Path(os.getenv("DATA_PROCESSED_DIR", str(DATA_DIR / "processed")))
     DATA_PRIVATE_DIR: Path = Path(os.getenv("DATA_PRIVATE_DIR", str(DATA_DIR / "private")))
+    MODEL_DIR: Path = Path(os.getenv("MODEL_DIR", str(PROJECT_ROOT / "models")))
 
     # ==========================================================================
     # FLASK API CONFIGURATION

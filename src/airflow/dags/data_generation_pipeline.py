@@ -25,6 +25,8 @@ from src.utils.persistence import (
     save_patients_to_db, save_vitals_to_db, save_progression_to_db,
     save_privacy_operation
 )
+from src.ml.predictor import DiseasePredictor
+from src.ml.manager import ModelManager
 
 
 # Default arguments
@@ -246,6 +248,28 @@ def persist_to_database(**context):
     return True
 
 
+def train_ml_models(**context):
+    """Train ML models on the generated data"""
+    ti = context['task_instance']
+    patients_file = ti.xcom_pull(task_ids='generate_patients', key='patients_file')
+
+    print(f"Loading data for training from {patients_file}...")
+    df = pd.read_csv(patients_file)
+
+    # Train diabetes predictor
+    print("Training diabetes predictor...")
+    diabetes_model = DiseasePredictor()
+    features = ['age', 'income'] # Simple features from patients.csv
+    diabetes_model.train(df, 'diabetes', features)
+
+    # Save model
+    manager = ModelManager()
+    manager.save_model(diabetes_model, 'disease_predictor')
+
+    print("ML model training complete.")
+    return True
+
+
 def apply_differential_privacy(**context):
     """Apply differential privacy to patient data"""
     ti = context['task_instance']
@@ -434,6 +458,12 @@ task_persist_db = PythonOperator(
     dag=dag,
 )
 
+task_train_ml = PythonOperator(
+    task_id='train_ml_models',
+    python_callable=train_ml_models,
+    dag=dag,
+)
+
 task_apply_privacy = PythonOperator(
     task_id='apply_privacy',
     python_callable=apply_differential_privacy,
@@ -469,5 +499,8 @@ task_generate_vitals >> task_validate_data
 # Persist to database after generation and transformation steps
 [task_generate_patients, task_generate_vitals, task_apply_patterns, task_generate_progression, task_apply_privacy] >> task_persist_db
 
+# Train ML models after data is ready
+task_persist_db >> task_train_ml
+
 # Generate report after all tasks complete
-[task_generate_treatments, task_apply_privacy, task_validate_data, task_persist_db] >> task_generate_report
+[task_generate_treatments, task_apply_privacy, task_validate_data, task_persist_db, task_train_ml] >> task_generate_report

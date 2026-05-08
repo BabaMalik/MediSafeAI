@@ -17,12 +17,15 @@ from src.privacy.differential_privacy import DifferentialPrivacy
 from src.utils.logger import get_logger, get_audit_logger
 from src.utils.schemas import (
     PatientCreate, PrivacyRequest, DiseaseProgressionRequest,
-    ExportRequest, BatchGenerationRequest, TemporalPatternRequest
+    ExportRequest, BatchGenerationRequest, TemporalPatternRequest,
+    MLTrainRequest, MLPredictRequest, MLPredictionResponse
 )
 from src.utils.persistence import (
     save_patients_to_db, save_vitals_to_db, save_progression_to_db,
     save_privacy_operation, safe_path
 )
+from src.ml.predictor import DiseasePredictor, VitalsForecaster
+from src.ml.manager import ModelManager
 from src.config.settings import settings
 
 logger = get_logger(__name__)
@@ -460,6 +463,101 @@ def compute_private_statistics():
 
 
 # =============================================================================
+# MACHINE LEARNING ENDPOINTS
+# =============================================================================
+
+@api_v1.route('/ml/train', methods=['POST'])
+def train_model():
+    """Train an ML model on generated data"""
+    try:
+        data = request.get_json()
+        validated = MLTrainRequest(**data)
+
+        logger.info(f"Training {validated.model_type} for target {validated.target_column}")
+
+        # In a real scenario, we would load from DB.
+        # Here we'll try to find a relevant CSV file in raw data dir as a fallback.
+        data_file = settings.DATA_OUTPUT_DIR / "patients.csv"
+        if not data_file.exists():
+             # Find any patient file
+             files = list(settings.DATA_OUTPUT_DIR.glob("patients_*.csv"))
+             if files:
+                 data_file = files[0]
+             else:
+                 return jsonify({
+                     'status': 'error',
+                     'error_message': 'No training data found. Please generate patients first.'
+                 }), 400
+
+        df = pd.read_csv(data_file)
+
+        if validated.model_type == 'disease_predictor':
+            model = DiseasePredictor()
+        else:
+            model = VitalsForecaster()
+
+        results = model.train(df, validated.target_column, validated.feature_columns)
+
+        # Save model
+        manager = ModelManager()
+        manager.save_model(model, validated.model_type.value)
+
+        return jsonify({
+            'status': 'success',
+            'message': f'Model {validated.model_type} trained successfully',
+            'data': {
+                'training_results': results,
+                'model_name': validated.model_type.value
+            },
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error training model: {e}")
+        return jsonify({
+            'status': 'error',
+            'error_message': str(e)
+        }), 500
+
+
+@api_v1.route('/ml/predict', methods=['POST'])
+def predict():
+    """Get prediction from a trained model"""
+    try:
+        data = request.get_json()
+        validated = MLPredictRequest(**data)
+
+        manager = ModelManager()
+        if not manager.exists(validated.model_type.value):
+            return jsonify({
+                'status': 'error',
+                'error_message': f'Model {validated.model_type} not found. Please train it first.'
+            }), 404
+
+        model = manager.load_model(validated.model_type.value)
+        prediction_results = model.predict(validated.features)
+
+        response = MLPredictionResponse(
+            model_type=validated.model_type.value,
+            prediction=prediction_results['prediction'],
+            probability=prediction_results.get('probability')
+        )
+
+        return jsonify({
+            'status': 'success',
+            'data': response.dict(),
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error in prediction: {e}")
+        return jsonify({
+            'status': 'error',
+            'error_message': str(e)
+        }), 500
+
+
+# =============================================================================
 # SIMULATION ENDPOINTS
 # =============================================================================
 
@@ -607,6 +705,10 @@ def api_docs():
             },
             'simulation': {
                 'POST /api/v1/simulate/progression': 'Simulate disease progression'
+            },
+            'ml': {
+                'POST /api/v1/ml/train': 'Train an ML model',
+                'POST /api/v1/ml/predict': 'Get model predictions'
             },
             'utility': {
                 'POST /api/v1/export': 'Export data in various formats',

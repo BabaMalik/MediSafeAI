@@ -16,6 +16,8 @@ from src.data_generator.vitals_generator import VitalsGenerator
 from src.data_generator.disease_progression import DiseaseProgressionModel
 from src.data_generator.treatment_generator import TreatmentGenerator
 from src.data_generator.temporal_patterns import TemporalPatternGenerator
+from src.ml.predictor import DiseasePredictor, VitalsForecaster
+from src.ml.manager import ModelManager
 from src.privacy.differential_privacy import DifferentialPrivacy
 from src.config.settings import settings
 from src.utils.logger import setup_logging, get_logger
@@ -246,6 +248,49 @@ def stats(input, column, epsilon, delta):
 # =============================================================================
 # SIMULATE COMMANDS
 # =============================================================================
+
+@cli.group()
+def ml():
+    """Machine Learning operations"""
+    pass
+
+
+@ml.command()
+@click.option('--input', '-i', required=True, help='Input CSV file')
+@click.option('--model-type', '-m', type=click.Choice(['disease_predictor', 'vitals_forecaster']), required=True)
+@click.option('--target', '-t', required=True, help='Target column')
+@click.option('--features', '-f', multiple=True, help='Feature columns')
+def train(input, model_type, target, features):
+    """Train an ML model"""
+    click.echo(f"Training {model_type} on {input}...")
+
+    try:
+        df = pd.read_csv(input)
+
+        if not features:
+            # Try to pick some default features
+            features = [c for c in df.columns if c not in [target, 'patient_id', 'visit_date', 'first_name', 'last_name', 'dob']]
+            click.echo(f"No features specified. Using defaults: {', '.join(features)}")
+        else:
+            features = list(features)
+
+        if model_type == 'disease_predictor':
+            model = DiseasePredictor()
+        else:
+            model = VitalsForecaster()
+
+        results = model.train(df, target, features)
+
+        manager = ModelManager()
+        manager.save_model(model, model_type)
+
+        click.echo(f"✓ Model trained successfully")
+        click.echo(f"✓ Results: {results}")
+    except Exception as e:
+        logger.error(f"Error training model: {e}")
+        click.echo(f"✗ Error: {e}", err=True)
+        sys.exit(1)
+
 
 @cli.group()
 def simulate():
