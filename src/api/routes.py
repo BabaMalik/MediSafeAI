@@ -12,11 +12,16 @@ from src.data_generator.patient_generator import PatientGenerator
 from src.data_generator.vitals_generator import VitalsGenerator
 from src.data_generator.disease_progression import DiseaseProgressionModel
 from src.data_generator.treatment_generator import TreatmentGenerator
+from src.data_generator.temporal_patterns import TemporalPatternGenerator
 from src.privacy.differential_privacy import DifferentialPrivacy
 from src.utils.logger import get_logger, get_audit_logger
 from src.utils.schemas import (
     PatientCreate, PrivacyRequest, DiseaseProgressionRequest,
-    ExportRequest, BatchGenerationRequest
+    ExportRequest, BatchGenerationRequest, TemporalPatternRequest
+)
+from src.utils.persistence import (
+    save_patients_to_db, save_vitals_to_db, save_progression_to_db,
+    save_privacy_operation, safe_path
 )
 from src.config.settings import settings
 
@@ -53,6 +58,12 @@ def generate_patients():
         output_file.parent.mkdir(parents=True, exist_ok=True)
         patients_df.to_csv(output_file, index=False)
 
+        # Save to database
+        try:
+            save_patients_to_db(patients_df)
+        except Exception as e:
+            logger.error(f"Failed to save patients to database: {e}")
+
         # Audit log
         audit_logger.log_data_generation(
             generator_type='patients',
@@ -81,6 +92,65 @@ def generate_patients():
         }), 500
 
 
+@api_v1.route('/generate/temporal', methods=['POST'])
+def generate_temporal():
+    """Apply temporal patterns to a dataset"""
+    try:
+        data = request.get_json()
+        validated = TemporalPatternRequest(**data)
+
+        logger.info(f"Applying {validated.pattern_type} pattern to {validated.column}")
+
+        # Load data safely
+        df = pd.read_csv(safe_path(validated.input_file))
+
+        # Ensure date columns are datetime objects if they exist
+        if 'visit_date' in df.columns:
+            df['visit_date'] = pd.to_datetime(df['visit_date'])
+
+        generator = TemporalPatternGenerator()
+
+        if validated.pattern_type == 'trend':
+            df = generator.apply_trends(
+                df,
+                metric=validated.column,
+                trend=validated.parameters.get('trend', 'increase')
+            )
+        elif validated.pattern_type == 'anomaly':
+            generator.anomaly_rate = validated.parameters.get('anomaly_rate', 0.1)
+            df = generator.inject_anomalies(df, metrics=[validated.column])
+        elif validated.pattern_type == 'seasonal':
+            df = generator.add_cyclic_patterns(
+                df,
+                metric=validated.column,
+                amplitude=validated.parameters.get('amplitude', 5),
+                period_days=validated.parameters.get('period_days', 90)
+            )
+
+        # Save to file
+        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        output_file = settings.DATA_OUTPUT_DIR / f"temporal_{timestamp}.csv"
+        df.to_csv(output_file, index=False)
+
+        return jsonify({
+            'status': 'success',
+            'message': f'Applied {validated.pattern_type} pattern to {validated.column}',
+            'data': {
+                'file_path': str(output_file),
+                'pattern_type': validated.pattern_type,
+                'column': validated.column
+            },
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error applying temporal patterns: {e}")
+        return jsonify({
+            'status': 'error',
+            'error_message': str(e)
+        }), 500
+
+
 @api_v1.route('/generate/vitals', methods=['POST'])
 def generate_vitals():
     """Generate vital signs for patients"""
@@ -94,8 +164,8 @@ def generate_vitals():
                 'error_message': 'input_file is required'
             }), 400
 
-        # Load patients
-        patients_df = pd.read_csv(input_file)
+        # Load patients safely
+        patients_df = pd.read_csv(safe_path(input_file))
         logger.info(f"Loaded {len(patients_df)} patients from {input_file}")
 
         # Generate vitals
@@ -106,6 +176,12 @@ def generate_vitals():
         timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
         output_file = settings.DATA_OUTPUT_DIR / f"vitals_{timestamp}.csv"
         vitals_df.to_csv(output_file, index=False)
+
+        # Save to database
+        try:
+            save_vitals_to_db(vitals_df)
+        except Exception as e:
+            logger.error(f"Failed to save vitals to database: {e}")
 
         # Audit log
         audit_logger.log_data_generation(
@@ -156,6 +232,11 @@ def generate_batch():
         patients_file = output_dir / f"patients_{timestamp}.csv"
         patients_df.to_csv(patients_file, index=False)
 
+        try:
+            save_patients_to_db(patients_df)
+        except Exception as e:
+            logger.error(f"Failed to save patients to database: {e}")
+
         files_generated = {'patients': str(patients_file)}
 
         # Generate vitals if requested
@@ -164,7 +245,37 @@ def generate_batch():
             vitals_df = vitals_gen.generate_vitals(patients_df)
             vitals_file = output_dir / f"vitals_{timestamp}.csv"
             vitals_df.to_csv(vitals_file, index=False)
+
+            try:
+                save_vitals_to_db(vitals_df)
+            except Exception as e:
+                logger.error(f"Failed to save vitals to database: {e}")
+
             files_generated['vitals'] = str(vitals_file)
+
+        # Generate progression if requested
+        if validated.include_progression:
+            progression_model = DiseaseProgressionModel()
+            all_progression = []
+            for _, patient in patients_df.iterrows():
+                prog_df = progression_model.simulate_progression(
+                    patient.to_dict(),
+                    num_visits=settings.DEFAULT_NUM_VISITS,
+                    time_interval_days=settings.DEFAULT_TIME_INTERVAL_DAYS
+                )
+                all_progression.append(prog_df)
+
+            if all_progression:
+                progression_df = pd.concat(all_progression, ignore_index=True)
+                progression_file = output_dir / f"progression_{timestamp}.csv"
+                progression_df.to_csv(progression_file, index=False)
+
+                try:
+                    save_progression_to_db(progression_df)
+                except Exception as e:
+                    logger.error(f"Failed to save progression to database: {e}")
+
+                files_generated['progression'] = str(progression_file)
 
         # Generate treatments if requested
         if validated.include_treatments:
@@ -219,8 +330,8 @@ def apply_privacy():
 
         logger.info(f"Applying privacy: ε={validated.privacy_config.epsilon}, δ={validated.privacy_config.delta}")
 
-        # Load data
-        df = pd.read_csv(validated.input_file)
+        # Load data safely
+        df = pd.read_csv(safe_path(validated.input_file))
 
         # Apply differential privacy
         dp = DifferentialPrivacy(
@@ -234,10 +345,12 @@ def apply_privacy():
             categorical_columns=validated.categorical_columns
         )
 
-        # Save output
-        output_file = validated.output_file or str(
-            settings.DATA_PRIVATE_DIR / f"private_{Path(validated.input_file).name}"
-        )
+        # Save output safely
+        if validated.output_file:
+            output_file = str(safe_path(validated.output_file))
+        else:
+            output_file = str(settings.DATA_PRIVATE_DIR / f"private_{Path(validated.input_file).name}")
+
         Path(output_file).parent.mkdir(parents=True, exist_ok=True)
         private_df.to_csv(output_file, index=False)
 
@@ -250,6 +363,21 @@ def apply_privacy():
             output_file=output_file,
             num_records=len(df)
         )
+
+        # Save to database
+        try:
+            save_privacy_operation(
+                epsilon=validated.privacy_config.epsilon,
+                delta=validated.privacy_config.delta,
+                operation_type='privatize_dataframe',
+                data_source=validated.input_file,
+                mechanism=validated.privacy_config.mechanism.value,
+                columns_affected=validated.numeric_columns + (validated.categorical_columns or []),
+                num_records=len(df),
+                output_file=output_file
+            )
+        except Exception as e:
+            logger.error(f"Failed to save privacy operation to database: {e}")
 
         return jsonify({
             'status': 'success',
@@ -282,8 +410,8 @@ def compute_private_statistics():
         epsilon = data.get('epsilon', 1.0)
         delta = data.get('delta', 1e-5)
 
-        # Load data
-        df = pd.read_csv(input_file)
+        # Load data safely
+        df = pd.read_csv(safe_path(input_file))
         column_data = df[column].values
 
         # Compute private statistics
@@ -295,6 +423,20 @@ def compute_private_statistics():
             'count': dp.private_count(column_data)
         }
         stats['std'] = stats['variance'] ** 0.5
+
+        # Save to database
+        try:
+            save_privacy_operation(
+                epsilon=epsilon,
+                delta=delta,
+                operation_type='compute_statistics',
+                data_source=input_file,
+                columns_affected=[column],
+                num_records=len(df),
+                statistics=stats
+            )
+        except Exception as e:
+            logger.error(f"Failed to save privacy statistics to database: {e}")
 
         return jsonify({
             'status': 'success',
@@ -360,6 +502,12 @@ def simulate_progression():
             time_interval_days=validated.time_interval_days
         )
 
+        # Save to database
+        try:
+            save_progression_to_db(progression_df)
+        except Exception as e:
+            logger.error(f"Failed to save progression to database: {e}")
+
         # Convert dates to strings for JSON serialization
         progression_df['visit_date'] = progression_df['visit_date'].astype(str)
 
@@ -394,8 +542,8 @@ def export_data():
         data = request.get_json()
         validated = ExportRequest(**data)
 
-        # Load data
-        df = pd.read_csv(validated.input_file)
+        # Load data safely
+        df = pd.read_csv(safe_path(validated.input_file))
 
         # Select columns if specified
         if validated.columns:
@@ -409,8 +557,8 @@ def export_data():
             )
             df = dp.privatize_dataframe(df)
 
-        # Export based on format
-        output_file = Path(validated.output_file)
+        # Export based on format safely
+        output_file = safe_path(validated.output_file)
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
         if validated.export_format == 'csv':
@@ -450,6 +598,7 @@ def api_docs():
             'generation': {
                 'POST /api/v1/generate/patients': 'Generate synthetic patient data',
                 'POST /api/v1/generate/vitals': 'Generate vital signs',
+                'POST /api/v1/generate/temporal': 'Apply temporal patterns to data',
                 'POST /api/v1/generate/batch': 'Generate complete dataset'
             },
             'privacy': {

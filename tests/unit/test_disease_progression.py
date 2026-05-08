@@ -63,7 +63,7 @@ class TestDiseaseProgressionModel:
         assert 'patient_id' in df.columns
         assert 'visit_date' in df.columns
         assert 'visit_number' in df.columns
-        assert 'systolic_bp' in df.columns
+        assert 'blood_pressure_systolic' in df.columns
         assert 'blood_glucose' in df.columns
         assert 'cholesterol' in df.columns
         assert 'heart_rate' in df.columns
@@ -132,7 +132,7 @@ class TestDiseaseProgressionModel:
         df_hyper = model.simulate_progression(hyper, num_visits=1, time_interval_days=30)
 
         # Hypertensive patient should have higher baseline BP
-        assert df_hyper['systolic_bp'].iloc[0] > df_normal['systolic_bp'].iloc[0]
+        assert df_hyper['blood_pressure_systolic'].iloc[0] > df_normal['blood_pressure_systolic'].iloc[0]
 
     def test_intervention_column(self, sample_patient_record):
         """Test that intervention column is present"""
@@ -143,9 +143,27 @@ class TestDiseaseProgressionModel:
             time_interval_days=30
         )
 
-        assert 'intervention' in df.columns
-        valid_interventions = {'major', 'minor', 'none'}
-        assert set(df['intervention'].unique()).issubset(valid_interventions)
+        assert 'intervention_occurred' in df.columns
+        assert 'intervention_type' in df.columns
+
+        # Allowed intervention types in the simulation
+        allowed_types = {'major', 'minor'}
+
+        # Get actual values from the dataframe
+        current_types = set(df['intervention_type'].unique())
+
+        # Remove None/NaN from actual values
+        current_types_filtered = {x for x in current_types if pd.notna(x)}
+
+        # Verify that all actual types are within the allowed set
+        assert current_types_filtered.issubset(allowed_types)
+
+        # Verify intervention_occurred matches intervention_type presence
+        for _, row in df.iterrows():
+            if pd.notna(row['intervention_type']):
+                assert row['intervention_occurred'] is True
+            else:
+                assert row['intervention_occurred'] is False
 
     def test_time_interval_days_alias(self, sample_patient_record):
         """Test that time_interval_days works as alias for visit_interval_days"""

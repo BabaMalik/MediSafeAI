@@ -27,8 +27,9 @@ app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max request size
 if settings.CORS_ENABLED:
     CORS(app, resources={r"/api/*": {"origins": settings.CORS_ORIGINS}})
 
-# Track app start time
+# Track app start time and metrics
 app_start_time = time.time()
+request_count = 0
 
 
 # =============================================================================
@@ -38,6 +39,8 @@ app_start_time = time.time()
 @app.before_request
 def before_request():
     """Log request information"""
+    global request_count
+    request_count += 1
     request.start_time = time.time()
     logger.info(f"{request.method} {request.path} from {request.remote_addr}")
 
@@ -153,8 +156,18 @@ def health_check():
 @app.route('/metrics')
 def metrics():
     """Prometheus metrics endpoint"""
-    # TODO: Implement proper Prometheus metrics
-    return "# MediSafeAI Metrics\n"
+    uptime = time.time() - app_start_time
+
+    metrics_data = [
+        "# HELP medisafe_uptime_seconds Uptime of the MediSafeAI API in seconds",
+        "# TYPE medisafe_uptime_seconds gauge",
+        f"medisafe_uptime_seconds {uptime}",
+        "# HELP medisafe_requests_total Total number of requests to the MediSafeAI API",
+        "# TYPE medisafe_requests_total counter",
+        f"medisafe_requests_total {request_count}"
+    ]
+
+    return "\n".join(metrics_data) + "\n", 200, {'Content-Type': 'text/plain; version=0.0.4'}
 
 
 # =============================================================================
