@@ -260,7 +260,12 @@ def train_ml_models(**context):
     print("Training diabetes predictor...")
     diabetes_model = DiseasePredictor()
     features = ['age', 'income'] # Simple features from patients.csv
-    diabetes_model.train(df, 'diabetes', features)
+    train_results = diabetes_model.train(df, 'diabetes', features)
+    print(f"Training results: {train_results}")
+
+    # Evaluate model
+    eval_results = diabetes_model.evaluate(df)
+    print(f"Evaluation results: {eval_results}")
 
     # Save model
     manager = ModelManager()

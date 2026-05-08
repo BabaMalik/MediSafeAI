@@ -520,6 +520,30 @@ def train_model():
         }), 500
 
 
+@api_v1.route('/ml/models', methods=['GET'])
+def list_models():
+    """List all trained ML models"""
+    try:
+        manager = ModelManager()
+        model_files = list(manager.model_dir.glob("*.joblib"))
+        models = [f.stem for f in model_files]
+
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'models': models,
+                'count': len(models)
+            },
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"Error listing models: {e}")
+        return jsonify({
+            'status': 'error',
+            'error_message': str(e)
+        }), 500
+
+
 @api_v1.route('/ml/predict', methods=['POST'])
 def predict():
     """Get prediction from a trained model"""

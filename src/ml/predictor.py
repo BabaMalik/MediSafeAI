@@ -57,6 +57,26 @@ class DiseasePredictor:
             "probability": float(probability) if probability is not None else None
         }
 
+    def evaluate(self, df: pd.DataFrame) -> Dict[str, float]:
+        """Evaluate the model on a evaluation dataset"""
+        if not self.is_trained:
+            raise ValueError("Model must be trained before evaluation")
+
+        X = df[self.features]
+        y = df[self.target]
+
+        y_pred = self.model.predict(X)
+        accuracy = accuracy_score(y, y_pred)
+
+        from sklearn.metrics import precision_score, recall_score, f1_score
+
+        return {
+            "accuracy": float(accuracy),
+            "precision": float(precision_score(y, y_pred, zero_division=0)),
+            "recall": float(recall_score(y, y_pred, zero_division=0)),
+            "f1": float(f1_score(y, y_pred, zero_division=0))
+        }
+
 class VitalsForecaster:
     """Forecasts future vital signs based on historical data"""
 
