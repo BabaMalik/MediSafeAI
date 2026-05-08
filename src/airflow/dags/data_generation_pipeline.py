@@ -18,7 +18,13 @@ sys.path.insert(0, '/opt/airflow/src')
 from src.data_generator.patient_generator import PatientGenerator
 from src.data_generator.vitals_generator import VitalsGenerator
 from src.data_generator.treatment_generator import TreatmentGenerator
+from src.data_generator.disease_progression import DiseaseProgressionModel
+from src.data_generator.temporal_patterns import TemporalPatternGenerator
 from src.privacy.differential_privacy import DifferentialPrivacy
+from src.utils.persistence import (
+    save_patients_to_db, save_vitals_to_db, save_progression_to_db,
+    save_privacy_operation
+)
 
 
 # Default arguments
@@ -121,6 +127,123 @@ def generate_treatments(**context):
     context['task_instance'].xcom_push(key='treatments_file', value=str(output_file))
 
     return str(output_file)
+
+
+def generate_progression(**context):
+    """Generate disease progression for patients"""
+    ti = context['task_instance']
+    patients_file = ti.xcom_pull(task_ids='generate_patients', key='patients_file')
+    num_visits = context['params'].get('num_visits', 12)
+    interval = context['params'].get('interval', 30)
+
+    print(f"Loading patients from {patients_file}...")
+    patients_df = pd.read_csv(patients_file)
+
+    print(f"Generating progression for {len(patients_df)} patients...")
+    model = DiseaseProgressionModel()
+    all_progression = []
+
+    for _, patient in patients_df.iterrows():
+        prog_df = model.simulate_progression(
+            patient.to_dict(),
+            num_visits=num_visits,
+            time_interval_days=interval
+        )
+        all_progression.append(prog_df)
+
+    progression_df = pd.concat(all_progression, ignore_index=True)
+
+    # Save to CSV
+    output_dir = Path(patients_file).parent
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_file = output_dir / f'progression_{timestamp}.csv'
+    progression_df.to_csv(output_file, index=False)
+
+    print(f"Generated progression for {len(patients_df)} patients -> {output_file}")
+
+    context['task_instance'].xcom_push(key='progression_file', value=str(output_file))
+
+    return str(output_file)
+
+
+def apply_temporal_patterns(**context):
+    """Apply temporal patterns to vital signs"""
+    ti = context['task_instance']
+    vitals_file = ti.xcom_pull(task_ids='generate_vitals', key='vitals_file')
+    metric = context['params'].get('metric', 'blood_glucose')
+    pattern_type = context['params'].get('pattern_type', 'trend')
+
+    print(f"Loading vitals from {vitals_file}...")
+    vitals_df = pd.read_csv(vitals_file)
+
+    if 'visit_date' in vitals_df.columns:
+        vitals_df['visit_date'] = pd.to_datetime(vitals_df['visit_date'])
+
+    print(f"Applying {pattern_type} pattern to {metric}...")
+    generator = TemporalPatternGenerator()
+
+    if pattern_type == 'trend':
+        vitals_df = generator.apply_trends(vitals_df, metric=metric)
+    elif pattern_type == 'anomaly':
+        vitals_df = generator.inject_anomalies(vitals_df, metrics=[metric])
+    elif pattern_type == 'seasonal':
+        vitals_df = generator.add_cyclic_patterns(vitals_df, metric=metric)
+
+    # Save to CSV
+    output_dir = Path(vitals_file).parent
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_file = output_dir / f'vitals_with_patterns_{timestamp}.csv'
+    vitals_df.to_csv(output_file, index=False)
+
+    print(f"Applied temporal patterns -> {output_file}")
+
+    context['task_instance'].xcom_push(key='vitals_with_patterns_file', value=str(output_file))
+
+    return str(output_file)
+
+
+def persist_to_database(**context):
+    """Persist generated data to the database"""
+    ti = context['task_instance']
+    patients_file = ti.xcom_pull(task_ids='generate_patients', key='patients_file')
+    vitals_file = ti.xcom_pull(task_ids='generate_vitals', key='vitals_file')
+    vitals_patterns_file = ti.xcom_pull(task_ids='apply_patterns', key='vitals_with_patterns_file')
+    progression_file = ti.xcom_pull(task_ids='generate_progression', key='progression_file')
+    private_file = ti.xcom_pull(task_ids='apply_privacy', key='private_file')
+
+    epsilon = context['params'].get('epsilon', 1.0)
+    delta = context['params'].get('delta', 1e-5)
+
+    print("Persisting data to database...")
+
+    # Persist patients
+    patients_df = pd.read_csv(patients_file)
+    save_patients_to_db(patients_df)
+
+    # Persist vitals (use vitals with patterns if available)
+    final_vitals_file = vitals_patterns_file if vitals_patterns_file else vitals_file
+    print(f"Persisting vitals from {final_vitals_file}...")
+    vitals_df = pd.read_csv(final_vitals_file)
+    save_vitals_to_db(vitals_df)
+
+    # Persist progression if it exists
+    if progression_file:
+        progression_df = pd.read_csv(progression_file)
+        save_progression_to_db(progression_df)
+
+    # Log privacy operation
+    if private_file:
+        save_privacy_operation(
+            epsilon=epsilon,
+            delta=delta,
+            operation_type='privatize_dataframe',
+            data_source=patients_file,
+            num_records=len(patients_df),
+            output_file=private_file
+        )
+
+    print("Data persistence complete.")
+    return True
 
 
 def apply_differential_privacy(**context):
@@ -290,6 +413,27 @@ task_generate_treatments = PythonOperator(
     dag=dag,
 )
 
+task_generate_progression = PythonOperator(
+    task_id='generate_progression',
+    python_callable=generate_progression,
+    params={'num_visits': 12, 'interval': 30},
+    dag=dag,
+)
+
+task_apply_patterns = PythonOperator(
+    task_id='apply_patterns',
+    python_callable=apply_temporal_patterns,
+    params={'metric': 'blood_glucose', 'pattern_type': 'trend'},
+    dag=dag,
+)
+
+task_persist_db = PythonOperator(
+    task_id='persist_to_db',
+    python_callable=persist_to_database,
+    params={'epsilon': 1.0, 'delta': 1e-5},
+    dag=dag,
+)
+
 task_apply_privacy = PythonOperator(
     task_id='apply_privacy',
     python_callable=apply_differential_privacy,
@@ -314,10 +458,16 @@ task_generate_report = PythonOperator(
 # =============================================================================
 
 # Patients must be generated first
-task_generate_patients >> [task_generate_vitals, task_generate_treatments, task_apply_privacy]
+task_generate_patients >> [task_generate_vitals, task_generate_treatments, task_generate_progression, task_apply_privacy]
+
+# Vitals can have temporal patterns applied
+task_generate_vitals >> task_apply_patterns
 
 # Validate after vitals are generated
 task_generate_vitals >> task_validate_data
 
+# Persist to database after generation and transformation steps
+[task_generate_patients, task_generate_vitals, task_apply_patterns, task_generate_progression, task_apply_privacy] >> task_persist_db
+
 # Generate report after all tasks complete
-[task_generate_treatments, task_apply_privacy, task_validate_data] >> task_generate_report
+[task_generate_treatments, task_apply_privacy, task_validate_data, task_persist_db] >> task_generate_report

@@ -48,8 +48,8 @@ class DiseaseProgressionModel:
 
         # Set baseline values with appropriate physiological ranges
         baseline = {
-            'systolic_bp': 120 + (20 if has_hypertension else 0) + (age // 20),
-            'diastolic_bp': 80 + (10 if has_hypertension else 0) + (age // 30),
+            'blood_pressure_systolic': 120 + (20 if has_hypertension else 0) + (age // 20),
+            'blood_pressure_diastolic': 80 + (10 if has_hypertension else 0) + (age // 30),
             'heart_rate': 75 + (10 if has_heart_disease else 0) - (age // 20),
             'blood_glucose': 100 + (80 if has_diabetes else 0),
             'cholesterol': 180 + (40 if has_heart_disease else 0) + (age // 10),
@@ -73,7 +73,7 @@ class DiseaseProgressionModel:
             # Simulate natural disease progression with some random variation
             for metric, base_value in baseline.items():
                 # Add natural progression and random noise
-                if metric in ['systolic_bp', 'diastolic_bp', 'blood_glucose', 'cholesterol']:
+                if metric in ['blood_pressure_systolic', 'blood_pressure_diastolic', 'blood_glucose', 'cholesterol']:
                     # These metrics tend to increase with disease progression
                     progression = base_value * (
                             1 +
@@ -101,7 +101,7 @@ class DiseaseProgressionModel:
 
             # Add lab results that would typically be measured
             visit_data['hemoglobin_a1c'] = 5.7 + (2.5 if has_diabetes else 0) * deterioration_factor
-            visit_data['white_blood_cell'] = 7500 + np.random.normal(0, 1000)
+            visit_data['white_blood_cells'] = 7500 + np.random.normal(0, 1000)
             visit_data['creatinine'] = 1.0 + (0.5 if has_diabetes else 0) * deterioration_factor
 
             # Disease-specific metrics
@@ -116,13 +116,16 @@ class DiseaseProgressionModel:
             if current_date.month % 3 == 0:  # Quarterly major intervention
                 intervention_effectiveness = np.random.uniform(0.3, 0.8)
                 deterioration_factor = max(1.0, deterioration_factor * (1 - intervention_effectiveness))
-                visit_data['intervention'] = 'major'
+                visit_data['intervention_occurred'] = True
+                visit_data['intervention_type'] = 'major'
             elif current_date.month % 2 == 0:  # Bi-monthly minor intervention
                 minor_effectiveness = np.random.uniform(0.1, 0.3)
                 deterioration_factor = max(1.0, deterioration_factor * (1 - minor_effectiveness))
-                visit_data['intervention'] = 'minor'
+                visit_data['intervention_occurred'] = True
+                visit_data['intervention_type'] = 'minor'
             else:
-                visit_data['intervention'] = 'none'
+                visit_data['intervention_occurred'] = False
+                visit_data['intervention_type'] = None
                 deterioration_factor *= 1.1  # Natural disease progression continues
 
             visits.append(visit_data)

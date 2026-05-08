@@ -15,6 +15,7 @@ from src.data_generator.patient_generator import PatientGenerator
 from src.data_generator.vitals_generator import VitalsGenerator
 from src.data_generator.disease_progression import DiseaseProgressionModel
 from src.data_generator.treatment_generator import TreatmentGenerator
+from src.data_generator.temporal_patterns import TemporalPatternGenerator
 from src.privacy.differential_privacy import DifferentialPrivacy
 from src.config.settings import settings
 from src.utils.logger import setup_logging, get_logger
@@ -91,6 +92,46 @@ def vitals(input, output):
         click.echo(f"✓ Saved to: {output}")
     except Exception as e:
         logger.error(f"Error generating vitals: {e}")
+        click.echo(f"✗ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@generate.command()
+@click.option('--input', '-i', required=True, help='Input CSV file')
+@click.option('--output', '-o', required=True, help='Output CSV file')
+@click.option('--column', '-c', required=True, help='Column to apply pattern to')
+@click.option('--type', '-t', type=click.Choice(['trend', 'anomaly', 'seasonal']), required=True, help='Type of pattern')
+@click.option('--trend', default='increase', type=click.Choice(['increase', 'decrease']), help='Trend direction')
+@click.option('--rate', default=0.1, help='Anomaly rate')
+@click.option('--amplitude', default=5.0, help='Seasonal amplitude')
+@click.option('--period', default=90, help='Seasonal period in days')
+def temporal(input, output, column, type, trend, rate, amplitude, period):
+    """Apply temporal patterns to data"""
+    click.echo(f"Applying {type} pattern to {column} in {input}...")
+
+    try:
+        df = pd.read_csv(input)
+        if 'visit_date' in df.columns:
+            df['visit_date'] = pd.to_datetime(df['visit_date'])
+
+        generator = TemporalPatternGenerator()
+
+        if type == 'trend':
+            df = generator.apply_trends(df, metric=column, trend=trend)
+        elif type == 'anomaly':
+            generator.anomaly_rate = rate
+            df = generator.inject_anomalies(df, metrics=[column])
+        elif type == 'seasonal':
+            df = generator.add_cyclic_patterns(df, metric=column, amplitude=amplitude, period_days=period)
+
+        # Ensure output directory exists
+        Path(output).parent.mkdir(parents=True, exist_ok=True)
+
+        df.to_csv(output, index=False)
+        click.echo(f"✓ Applied {type} pattern")
+        click.echo(f"✓ Saved to: {output}")
+    except Exception as e:
+        logger.error(f"Error applying temporal patterns: {e}")
         click.echo(f"✗ Error: {e}", err=True)
         sys.exit(1)
 
