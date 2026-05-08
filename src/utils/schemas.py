@@ -317,6 +317,49 @@ class TemporalPatternRequest(BaseModel):
 
 
 # =============================================================================
+# MACHINE LEARNING SCHEMAS
+# =============================================================================
+
+class MLModelTypeEnum(str, Enum):
+    """ML Model types"""
+    DISEASE_PREDICTOR = "disease_predictor"
+    VITALS_FORECASTER = "vitals_forecaster"
+
+
+class MLTrainRequest(BaseModel):
+    """Schema for model training requests"""
+    model_type: MLModelTypeEnum
+    target_column: str = Field(..., description="Column to predict")
+    feature_columns: List[str] = Field(..., description="Columns to use as features")
+    test_size: float = Field(default=0.2, ge=0.1, le=0.5)
+    random_state: int = Field(default=42)
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "model_type": "disease_predictor",
+                "target_column": "diabetes",
+                "feature_columns": ["age", "blood_pressure_systolic", "blood_glucose", "weight"],
+                "test_size": 0.2
+            }
+        }
+
+
+class MLPredictRequest(BaseModel):
+    """Schema for prediction requests"""
+    model_type: MLModelTypeEnum
+    features: Dict[str, Any] = Field(..., description="Feature values for prediction")
+
+
+class MLPredictionResponse(BaseModel):
+    """Schema for prediction responses"""
+    model_type: str
+    prediction: Any
+    probability: Optional[float] = None
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+# =============================================================================
 # BATCH OPERATION SCHEMAS
 # =============================================================================
 
