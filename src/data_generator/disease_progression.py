@@ -1,5 +1,3 @@
-#### Disease Progression Model
-
 # src/data_generator/disease_progression.py
 import numpy as np
 import pandas as pd
@@ -155,4 +153,3 @@ class DiseaseProgressionModel:
             num_visits=num_visits,
             time_interval_days=time_interval_days
         )
-

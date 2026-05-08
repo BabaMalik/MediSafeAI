@@ -52,6 +52,7 @@ class TestPatientGenerator:
             'dob', 'age', 'zip_code', 'income', 'insurance',
             'diabetes', 'hypertension', 'heart_disease'
         ]
+
         assert list(df.columns) == expected_columns
 
     def test_patient_id_uniqueness(self):
@@ -100,7 +101,6 @@ class TestPatientGenerator:
         """Test that condition columns contain 0 or 1"""
         generator = PatientGenerator(num_patients=100, seed=42)
         df = generator.generate_patients()
-
         for col in ['diabetes', 'hypertension', 'heart_disease']:
             assert set(df[col].unique()).issubset({0, 1})
 

@@ -10,6 +10,7 @@ from airflow.utils.dates import days_ago
 from pathlib import Path
 import json
 import logging
+import logging
 
 # Default arguments
 default_args = {
@@ -19,6 +20,7 @@ default_args = {
     'email_on_retry': False,
     'retries': 1,
     'retry_delay': timedelta(minutes=2),
+    'email': ['admin@medisafe.ai'],
     'email': ['admin@medisafe.ai'],
 }
 
@@ -34,6 +36,14 @@ dag = DAG(
 
 
 def check_privacy_budget(**context):
+    """Check cumulative privacy budget usage by querying privacy_operations table"""
+    logger = logging.getLogger(__name__)
+    logger.info("Checking privacy budget usage...")
+    """Check cumulative privacy budget usage"""
+    print("Checking privacy budget usage...")
+
+    # TODO: Query privacy_operations table from database
+    # For now, create sample report
     """Check cumulative privacy budget usage by querying privacy_operations table"""
     logger = logging.getLogger(__name__)
     logger.info("Checking privacy budget usage...")
@@ -92,11 +102,15 @@ def check_privacy_budget(**context):
     report_dir.mkdir(parents=True, exist_ok=True)
     report_file = report_dir / f'privacy_budget_{datetime.now().strftime("%Y%m%d")}.json'
     report_file.write_text(json.dumps(report, indent=2))
+    print(f"Privacy Budget Status: {json.dumps(report, indent=2)}")
 
     return report
 
 
 def alert_if_budget_exceeded(**context):
+    """Alert if privacy budget is exceeded or nearing threshold"""
+    logger = logging.getLogger(__name__)
+    """Alert if privacy budget is exceeded"""
     """Alert if privacy budget is exceeded or nearing threshold"""
     logger = logging.getLogger(__name__)
     ti = context['task_instance']
@@ -173,6 +187,11 @@ def _send_alert(subject, body):
     except Exception as e:
         logger.error(f"Failed to send alert email: {e}")
         logger.warning(f"Alert (unsent): {subject}\n{body}")
+    if report['cumulative_epsilon'] / report['max_epsilon'] > threshold:
+        print(f"⚠️  WARNING: Privacy budget usage above {threshold*100}%!")
+        # TODO: Send email alert
+    else:
+        print("✓ Privacy budget within acceptable limits")
 
 
 task_check_budget = PythonOperator(

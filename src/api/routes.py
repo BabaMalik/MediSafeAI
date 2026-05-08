@@ -4,6 +4,7 @@ Defines all REST API endpoints for MediSafeAI
 """
 
 from flask import Blueprint, request, jsonify, send_file
+from flask_jwt_extended import jwt_required
 from datetime import datetime
 from pathlib import Path
 import pandas as pd
@@ -40,6 +41,7 @@ api_v1 = Blueprint('api_v1', __name__, url_prefix='/api/v1')
 # =============================================================================
 
 @api_v1.route('/generate/patients', methods=['POST'])
+@jwt_required()
 def generate_patients():
     """Generate synthetic patient data"""
     try:
@@ -467,6 +469,7 @@ def compute_private_statistics():
 # =============================================================================
 
 @api_v1.route('/ml/train', methods=['POST'])
+@jwt_required()
 def train_model():
     """Train an ML model on generated data"""
     try:
@@ -538,6 +541,48 @@ def list_models():
         }), 200
     except Exception as e:
         logger.error(f"Error listing models: {e}")
+        return jsonify({
+            'status': 'error',
+            'error_message': str(e)
+        }), 500
+
+
+@api_v1.route('/ml/evaluate', methods=['POST'])
+def evaluate_model():
+    """Evaluate a trained model on a dataset"""
+    try:
+        data = request.get_json()
+        model_name = data.get('model_name')
+        input_file = data.get('input_file')
+
+        if not model_name or not input_file:
+            return jsonify({
+                'status': 'error',
+                'error_message': 'model_name and input_file are required'
+            }), 400
+
+        manager = ModelManager()
+        if not manager.exists(model_name):
+            return jsonify({
+                'status': 'error',
+                'error_message': f'Model {model_name} not found.'
+            }), 404
+
+        model = manager.load_model(model_name)
+        df = pd.read_csv(safe_path(input_file))
+
+        metrics = model.evaluate(df)
+
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'model_name': model_name,
+                'metrics': metrics
+            },
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"Error evaluating model: {e}")
         return jsonify({
             'status': 'error',
             'error_message': str(e)

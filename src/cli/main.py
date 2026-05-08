@@ -50,6 +50,80 @@ def generate():
 
 @generate.command()
 @click.option('--count', '-n', default=1000, help='Number of patients to generate')
+@click.option('--output-dir', '-d', default='data/raw', help='Output directory')
+@click.option('--visits', is_flag=True, default=False, help='Include visits and longitudinal data')
+def all(count, output_dir, visits):
+    """Generate complete synthetic dataset (Patients, Vitals, Treatments, etc.)"""
+    click.echo(f"Starting master data generation for {count} patients...")
+
+    try:
+        from src.utils.persistence import save_patients_to_db, save_vitals_to_db, save_progression_to_db
+
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        patient_gen = PatientGenerator()
+        vitals_gen = VitalsGenerator()
+        treatment_gen = TreatmentGenerator()
+        disease_model = DiseaseProgressionModel()
+        temporal_gen = TemporalPatternGenerator()
+
+        # Step 1: Generate Patients
+        patients_df = patient_gen.generate_demographics(n_patients=count)
+        patients_df.to_csv(output_path / "patients.csv", index=False)
+        save_patients_to_db(patients_df)
+        click.echo(f"✓ Generated {len(patients_df)} patients")
+
+        if visits:
+            click.echo("Generating longitudinal data (visits, patterns)...")
+            all_visits = []
+            all_vitals = []
+            all_treatments = []
+
+            for _, patient in patients_df.iterrows():
+                # Simulate disease progression
+                v_df = disease_model.simulate_progression(patient_data=patient, num_visits=12)
+
+                # Apply patterns
+                v_df = temporal_gen.inject_anomalies(v_df, ['blood_glucose', 'cholesterol'])
+                v_df = temporal_gen.add_cyclic_patterns(v_df, 'heart_rate')
+
+                for _, visit in v_df.iterrows():
+                    # Vitals per visit
+                    vits = vitals_gen.generate_vitals(patient_data=patient)
+                    vits['patient_id'] = patient['patient_id']
+                    vits['visit_date'] = visit['visit_date']
+                    all_vitals.append(vits)
+
+                    # Treatments per visit
+                    treat = treatment_gen.assign_treatments(patient.to_dict(), visit_date=visit['visit_date'])
+                    treat['patient_id'] = patient['patient_id']
+                    all_treatments.append(treat)
+
+                all_visits.append(v_df)
+
+            final_visits_df = pd.concat(all_visits, ignore_index=True)
+            final_vitals_df = pd.DataFrame(all_vitals)
+            final_treatments_df = pd.DataFrame(all_treatments)
+
+            final_visits_df.to_csv(output_path / "visits.csv", index=False)
+            final_vitals_df.to_csv(output_path / "vitals.csv", index=False)
+            final_treatments_df.to_csv(output_path / "treatments.csv", index=False)
+
+            save_progression_to_db(final_visits_df)
+            save_vitals_to_db(final_vitals_df)
+
+            click.echo(f"✓ Generated longitudinal data saved to {output_dir}")
+
+        click.echo("✅ Master generation complete")
+    except Exception as e:
+        logger.error(f"Error in master generation: {e}")
+        click.echo(f"✗ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@generate.command()
+@click.option('--count', '-n', default=1000, help='Number of patients to generate')
 @click.option('--output', '-o', default='data/raw/patients.csv', help='Output file path')
 @click.option('--seed', default=None, type=int, help='Random seed for reproducibility')
 def patients(count, output, seed):

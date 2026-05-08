@@ -6,12 +6,14 @@ REST API for MediSafeAI data generation and privacy operations
 import time
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_jwt_extended import JWTManager
 from datetime import datetime
 from pathlib import Path
 
 from src.config.settings import settings
 from src.utils.logger import setup_logging, get_logger, get_audit_logger
 from src.api.routes import register_routes
+from src.api.auth_routes import auth_bp
 
 # Initialize logger
 setup_logging()
@@ -21,11 +23,15 @@ audit_logger = get_audit_logger()
 # Create Flask app
 app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False
+app.config['JWT_SECRET_KEY'] = settings.SECRET_KEY
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max request size
 
 # Enable CORS if configured
 if settings.CORS_ENABLED:
     CORS(app, resources={r"/api/*": {"origins": settings.CORS_ORIGINS}})
+
+# Initialize JWT
+jwt = JWTManager(app)
 
 # Track app start time and metrics
 app_start_time = time.time()
@@ -174,6 +180,7 @@ def metrics():
 # REGISTER API ROUTES
 # =============================================================================
 
+app.register_blueprint(auth_bp)
 register_routes(app)
 
 

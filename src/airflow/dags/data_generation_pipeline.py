@@ -27,6 +27,8 @@ from src.utils.persistence import (
 )
 from src.ml.predictor import DiseasePredictor
 from src.ml.manager import ModelManager
+from src.privacy.differential_privacy import DifferentialPrivacy
+from src.privacy.differential_privacy import DifferentialPrivacy
 
 
 # Default arguments
@@ -497,6 +499,8 @@ task_generate_patients >> [task_generate_vitals, task_generate_treatments, task_
 
 # Vitals can have temporal patterns applied
 task_generate_vitals >> task_apply_patterns
+task_generate_patients >> [task_generate_vitals, task_generate_treatments, task_apply_privacy]
+task_generate_patients >> [task_generate_vitals, task_generate_treatments, task_apply_privacy]
 
 # Validate after vitals are generated
 task_generate_vitals >> task_validate_data
@@ -509,3 +513,7 @@ task_persist_db >> task_train_ml
 
 # Generate report after all tasks complete
 [task_generate_treatments, task_apply_privacy, task_validate_data, task_persist_db, task_train_ml] >> task_generate_report
+# Generate report after all tasks complete
+[task_generate_treatments, task_apply_privacy, task_validate_data] >> task_generate_report
+# Generate report after all tasks complete
+[task_generate_treatments, task_apply_privacy, task_validate_data] >> task_generate_report

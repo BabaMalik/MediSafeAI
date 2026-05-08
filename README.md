@@ -1,34 +1,51 @@
 # MediSafeAI
 
-> **Privacy-first synthetic healthcare data generation and predictive analytics platform.**
+> **Privacy-First Synthetic Healthcare Data Generation & Predictive Analytics Platform**
 
-MediSafeAI is a comprehensive solution designed to bridge the gap between healthcare data privacy and the need for high-quality data in AI/ML research. It enables the generation of mathematically private, demographically realistic, and longitudinally consistent patient data, complete with an integrated pipeline for training and deploying predictive models.
+MediSafeAI is an end-to-end platform for generating mathematically private, demographically realistic, and longitudinally consistent synthetic patient data. It bridges the gap between healthcare data privacy (HIPAA) and the need for high-quality data in AI/ML research.
 
 ---
 
 ## 🎯 Project Goal
 
-The primary goal of MediSafeAI is to provide a **safe, HIPAA-compliant environment** for healthcare researchers and data scientists. By using advanced synthetic data generation techniques and Differential Privacy, it allows organizations to develop and test healthcare applications without ever handling sensitive Real-World Data (RWD).
+The primary goal of MediSafeAI is to provide a **safe, HIPAA-compliant environment** for healthcare researchers and data scientists. By using advanced synthetic data generation techniques and **Differential Privacy**, it allows organizations to develop and test healthcare applications and ML models without ever handling sensitive Real-World Data (RWD).
 
 ## 🚀 What to Expect (Expected Outcomes)
 
-When you run MediSafeAI, you can expect:
-1.  **Realistic Patient Cohorts**: Thousands of synthetic patients with demographic distributions correlated to health outcomes (age, gender, income, location).
-2.  **Longitudinal Health Records**: Multi-visit disease progression simulations modeling vitals (BP, glucose, heart rate) and lab results (HbA1c, Creatinine) over time.
-3.  **Provable Privacy**: Datasets protected by Laplace and Gaussian differential privacy mechanisms, ensuring no individual patient can be re-identified.
-4.  **Automated ML Pipelines**: Integrated workflows that automatically generate data, persist it to a database, and train predictive models (e.g., disease risk classification).
-5.  **Operational Monitoring**: Built-in Prometheus metrics and Grafana dashboards to track API usage and privacy budget consumption.
+When you run MediSafeAI, you get a full-stack synthetic data factory:
+1.  **Realistic Patient Cohorts**: Generate thousands of patients with realistic age, gender, income, and disease distributions.
+2.  **Longitudinal Health Records**: Simulate multi-visit disease progression modeling vitals (BP, glucose, heart rate) and lab results over time.
+3.  **Provable Privacy**: Protect datasets using Laplace and Gaussian differential privacy mechanisms, ensuring re-identification is mathematically impossible.
+4.  **Integrated ML Module**: Train and evaluate predictive models (e.g., disease risk classification) directly on the generated data.
+5.  **Automated Orchestration**: Scheduled Airflow DAGs that handle the entire pipeline from generation to ML model updates.
+6.  **Operational Monitoring**: Built-in Prometheus metrics and Grafana dashboards for tracking API performance and privacy budget usage.
 
 ## 💡 What You Gain
 
--   **Zero Compliance Risk**: Work with data that is not subject to HIPAA restrictions, eliminating the risk of data breaches.
+-   **Zero Compliance Risk**: Work with data that is not subject to HIPAA restrictions, eliminating data breach liabilities.
 -   **Accelerated R&D**: Skip the months of legal and administrative overhead required to access real clinical data.
--   **Higher Model Robustness**: Use temporal pattern injection (trends, anomalies, seasonal cycles) to train models that are resilient to real-world data fluctuations.
--   **Privacy Budget Control**: Track exactly how much "privacy" is being used across your organization with centralized audit logging.
+-   **Model Robustness**: Inject trends, anomalies, and seasonal patterns into your data to train more resilient models.
+-   **Unified Workflow**: A single platform that handles data generation, privacy protection, persistence, and machine learning.
 
-## 🏁 The End Result
+---
 
-The end result is a **production-ready analytics ecosystem**. You have a REST API serving both synthetic data and ML predictions, an Airflow-orchestrated data factory constantly refreshing your datasets, and a secure, persistent database containing the history of all operations.
+## 🏗️ Architecture
+
+```
+MediSafeAI/
+├── src/
+│   ├── api/             # Flask REST API with JWT Auth & ML endpoints
+│   ├── cli/             # Master orchestration CLI
+│   ├── data_generator/  # Demographic, Vitals, Progression, and Pattern engines
+│   ├── privacy/         # Differential Privacy implementation
+│   ├── ml/              # Machine Learning predictors and model management
+│   ├── models/          # SQLAlchemy Database models (Patient, User, Audit)
+│   ├── airflow/dags/    # Automated data pipelines
+│   └── utils/           # Persistence, Logging, and Schemas
+├── frontend/            # React-based management dashboard
+├── docker/              # Infrastructure config (Prometheus, Grafana, Postgres)
+└── tests/               # Unit and Integration test suite
+```
 
 ---
 
@@ -37,77 +54,49 @@ The end result is a **production-ready analytics ecosystem**. You have a REST AP
 ### 1. Prerequisites
 - Python 3.8+
 - Docker & Docker Compose
-- PostgreSQL (if running locally without Docker)
+- PostgreSQL (if running locally)
 
-### 2. Quick Installation
+### 2. Installation
 ```bash
 git clone https://github.com/BabaMalik/MediSafeAI.git
 cd MediSafeAI
-python -m venv venv
-source venv/bin/activate
 pip install -e .
 ```
 
-### 3. Running with Docker (Recommended)
-This starts the full stack: API, PostgreSQL, Redis, Airflow, Prometheus, and Grafana.
+### 3. Running the Full Stack (Recommended)
+This starts the API, Frontend, Database, Airflow, and Monitoring tools:
 ```bash
 docker-compose up -d
 ```
 - **API**: http://localhost:5000
+- **Frontend**: http://localhost:3000
 - **Airflow**: http://localhost:8080 (admin/admin)
 - **Grafana**: http://localhost:3000 (admin/admin)
 
-### 4. CLI Usage
-Generate data and train models directly from your terminal:
-
-**Generate Patients:**
+### 4. CLI - Master Orchestration
+Generate a complete longitudinal dataset and save to DB/CSV:
 ```bash
-medisafe generate patients --count 5000 --output data/raw/patients.csv
+medisafe generate all --count 1000 --visits
 ```
 
-**Apply Temporal Patterns:**
-```bash
-medisafe generate temporal --input data/raw/patients.csv --output data/raw/vitals_trend.csv --column blood_glucose --type trend --trend increase
-```
-
-**Train Machine Learning Model:**
+### 5. Machine Learning Workflow
+Train a model on your synthetic data:
 ```bash
 medisafe ml train --input data/raw/patients.csv --model-type disease_predictor --target diabetes --features age --features income
 ```
 
-### 5. API Interaction
-**Train a model via API:**
-```bash
-curl -X POST http://localhost:5000/api/v1/ml/train \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_type": "disease_predictor",
-    "target_column": "diabetes",
-    "feature_columns": ["age", "income"]
-  }'
-```
-
-**Get a Prediction:**
-```bash
-curl -X POST http://localhost:5000/api/v1/ml/predict \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model_type": "disease_predictor",
-    "features": {"age": 65, "income": 85000}
-  }'
-```
+### 6. API Interaction (JWT Protected)
+1. **Login** to get your token:
+   ```bash
+   curl -X POST http://localhost:5000/api/v1/auth/login -d '{"email":"admin@medisafe.ai", "password":"password"}'
+   ```
+2. **Predict** using a trained model:
+   ```bash
+   curl -X POST http://localhost:5000/api/v1/ml/predict \
+     -H "Authorization: Bearer <token>" \
+     -d '{"model_type": "disease_predictor", "features": {"age": 65, "income": 85000}}'
+   ```
 
 ---
 
-## 🏗️ Architecture
-
--   **`src/data_generator`**: Core synthetic generation engines.
--   **`src/privacy`**: Differential privacy mechanisms.
--   **`src/ml`**: Machine learning predictors and model management.
--   **`src/api`**: Flask REST interface.
--   **`src/airflow`**: Orchestration DAGs for automated pipelines.
--   **`src/models`**: Database schemas (SQLAlchemy).
-
----
-
-**Disclaimer**: This software generates synthetic data for research and development purposes only. It is not intended for clinical use.
+**Disclaimer**: This software generates synthetic data for research and development purposes only. It is not intended for clinical use or as a substitute for real patient data in production healthcare systems.
