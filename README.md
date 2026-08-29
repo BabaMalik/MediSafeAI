@@ -5,19 +5,104 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## What is MediSafeAI?
+## The Problem
 
-MediSafeAI generates **realistic synthetic patient data** that looks and behaves like real healthcare data — without exposing any real patient information. It solves a core problem in healthcare AI: you need data to build models, but real patient data is heavily regulated under HIPAA.
+Most healthcare data tools start from the premise that *the problem is access* — that if researchers could just get their hands on real patient records, healthcare AI would move forward.
 
-The platform provides:
+**MediSafeAI starts from a different premise: hand me perfect, unlimited, fully-consented real patient data, and three fundamental problems remain completely unsolved.**
+
+Those three problems are what this project exists to address.
+
+---
+
+### Problem 1 — Real data records one timeline per patient. Never the alternatives.
+
+A patient's chart tells you what happened to them. It cannot tell you what *would* have happened under a different decision. Every record in every EHR in the world is a single observed timeline, and the counterfactual — the road not taken — was never recorded, because it never occurred.
+
+This is not a data volume problem. Ten million patient records still give you exactly one timeline each. You cannot query your way to an answer that was never observed.
+
+### Problem 2 — The cases you most need to learn from are the ones reality gives you least.
+
+Rare adverse drug reactions. Unusual comorbidity combinations. Atypical presentations in under-represented groups. These are precisely the cases where clinical decision support fails and where models need the most training signal — and they are, by definition, scarce.
+
+You cannot order more of them. A hospital with 100,000 patient records and 12 instances of a rare reaction cannot obtain a 13th by collecting harder. Real data delivers the class balance nature produced, not the one your model needs.
+
+### Problem 3 — You cannot validate a model against a population you do not have.
+
+A sepsis model trained on an urban academic hospital gets deployed at a rural clinic with different demographics, different comorbidity patterns, different baseline vitals. Does it still work? Real data cannot answer this before deployment, because the validation population does not exist in your dataset.
+
+The same applies across time: new treatment protocols, shifting population health, seasonal effects. Your dataset is one frozen sample of one population at one moment. Stress-testing against anything else requires data you do not have and cannot collect in advance.
+
+---
+
+### What these three have in common
+
+All three are **unobservability problems, not access problems.** They persist at any data volume, under any consent regime, with any budget. No amount of real data solves them, because the information required was never generated in the first place.
+
+Simulation is the only mechanism that addresses them — because a simulator can be *re-run under different conditions*, which reality cannot.
+
+---
+
+## A Worked Example
+
+**The clinical question:** Margaret is 68, type 2 diabetic, HbA1c 7.2%. Standard practice escalates therapy at the 9-month review. Her physician suspects escalating at month 3 would produce materially better outcomes.
+
+**Why her chart cannot answer this.** Margaret's record shows one year on the standard schedule, ending at HbA1c 8.1%. The month-3 timeline was never observed — she only lived one. To answer from real data you would need a randomised trial: years of enrolment, ethics approval, substantial cost, and a control arm of real patients knowingly assigned to the schedule you suspect is worse.
+
+**What MediSafeAI does instead** — run the same cohort down both timelines:
+
+```python
+import numpy as np
+from src.data_generator.patient_generator import PatientGenerator
+from src.data_generator.disease_progression import DiseaseProgressionModel
+
+# A cohort of patients like Margaret
+cohort = PatientGenerator(num_patients=500, seed=42).generate_patients()
+diabetics = cohort[cohort['diabetes'] == 1]          # 65 patients
+
+for label, rate in [("standard care", 0.03), ("tight control", 0.015)]:
+    np.random.seed(7)
+    model = DiseaseProgressionModel(base_deterioration_rate=rate)
+    finals = [
+        model.simulate_progression(p, num_visits=12, time_interval_days=30)
+             ['blood_glucose'].iloc[-1]
+        for _, p in diabetics.iterrows()
+    ]
+    print(f"{label:<15} mean final glucose = {np.mean(finals):.1f} mg/dL")
+```
+
+```
+standard care   mean final glucose = 185.1 mg/dL
+tight control   mean final glucose = 182.5 mg/dL
+```
+
+The identical 65 patients — same ages, same baselines, same comorbidities — are run down two timelines that could never both exist in reality. That comparison is the thing real data structurally cannot provide, and it is available here in seconds rather than trial-years.
+
+**What this buys you.** Not a replacement for the trial. A simulated effect is only as trustworthy as the model that produced it, and this one is a hand-specified simulation, not a model fitted to clinical outcomes — so the magnitude above is illustrative of the *method*, not a clinical finding. What it buys you is the ability to ask the question at all, cheaply, and to use the answer to decide which trials are worth the years.
+
+> **Honest limitation, stated plainly.** The contrast above varies baseline deterioration, not treatment timing. Margaret's actual question — *escalate at month 3 or month 9?* — cannot yet be expressed: intervention timing is hardcoded to the calendar in `disease_progression.py`, and the `intervention_effectiveness` constructor argument is currently overridden internally and has no effect. HbA1c is likewise driven only by the internal intervention schedule, so it does not respond to any constructor parameter. Making these levers controllable is the first item on the [Roadmap](#roadmap) — it is what turns a progression simulator into a genuine counterfactual engine.
+
+---
+
+### Where privacy fits
+
+Differential privacy matters here, but it is a **property of the output, not the purpose of the project.** Because the cohorts are simulated rather than drawn from real patients, results are shareable and publishable by default. The privacy engine (Laplace, Gaussian, and randomised-response mechanisms) is what lets you apply the same guarantees when releasing statistics derived from real data alongside the simulated work.
+
+Privacy makes the output safe to share. It is not the reason the project exists.
+
+---
+
+## What MediSafeAI Provides
 
 - **Synthetic patient generation** with demographically realistic distributions (age-correlated disease probabilities, gender-adjusted risk factors, log-normal income distributions)
-- **Differential privacy** (Laplace and Gaussian mechanisms) so that even synthetic data can be shared safely with mathematically provable privacy guarantees
-- **Disease progression simulation** that models how conditions like diabetes, hypertension, and heart disease evolve over time with realistic vital sign trajectories and intervention effects
-- **Treatment assignment** that maps patient conditions to appropriate medication protocols
-- **Temporal pattern injection** to add trends, anomalies, and seasonal cycles to time-series health data
+- **Disease progression simulation** modelling how diabetes, hypertension, and heart disease evolve over time, with configurable deterioration rates and intervention effects — the counterfactual engine
+- **Treatment assignment** mapping patient conditions to medication protocols
+- **Temporal pattern injection** adding trends, anomalies, and seasonal cycles — the mechanism for constructing distribution-shift test populations
+- **Differential privacy** (Laplace and Gaussian mechanisms) with mathematically provable guarantees for safe release
 
-All of this is accessible through a **REST API**, a **CLI**, and **Airflow DAGs** for scheduled pipeline execution, with full **audit logging** for HIPAA compliance tracking.
+Accessible through a **REST API**, a **CLI**, and **Airflow DAGs** for scheduled pipeline execution, with **audit logging** for compliance tracking.
+
+> **Project status:** the data generation and differential privacy layers described above are implemented and tested. The analytics, machine learning, and interactive interface layers are not yet built — see [Roadmap](#roadmap).
 
 ## Architecture
 
@@ -207,6 +292,37 @@ black src/ tests/
 # Linting
 flake8 src/ tests/
 ```
+
+## Roadmap
+
+The three problems above define what still needs building. Each layer depends on the one before it.
+
+**Built today — the simulation foundation**
+
+- Patient, vitals, treatment, and temporal pattern generation
+- Disease progression simulation with configurable deterioration and intervention effects
+- Differential privacy (Laplace, Gaussian, randomised response, private statistics)
+- REST API, CLI, Airflow pipelines, JWT authentication
+
+**First — make the counterfactual levers real**
+
+The progression model has the shape of a counterfactual engine but not yet the controls. Three specific gaps: `intervention_effectiveness` is accepted by the constructor and then overridden by an internal random draw; intervention timing is hardcoded to calendar months rather than being a parameter; and HbA1c responds only to the internal schedule, so it is invariant to every constructor argument. Until these are parameters, Problem 1 can only be demonstrated on baseline deterioration rather than on treatment decisions.
+
+**Next — making simulations queryable**
+
+Generated cohorts currently write to CSV and are not persisted to a queryable store, so comparing results across runs is manual. Wiring generation to PostgreSQL is the prerequisite for everything below.
+
+**Then — the counterfactual and analytics layer**
+
+Running paired arms at cohort scale, computing effect sizes with confidence intervals, and exposing aggregate statistics through the API. This is what turns Problem 1 from a single-patient illustration into a usable method.
+
+**Then — machine learning**
+
+Rare-event models trained on deliberately over-sampled synthetic cohorts (Problem 2), and validation harnesses that stress-test models against shifted populations built with the temporal pattern generator (Problem 3). Requires adding scikit-learn, XGBoost, and a deep learning framework — none are currently dependencies.
+
+**Finally — the interactive interface**
+
+A web interface for constructing cohorts, defining counterfactual arms, running comparisons, and inspecting model results. Deliberately last: it needs the layers beneath it to have something to display.
 
 ## License
 
